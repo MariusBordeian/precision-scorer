@@ -1,0 +1,63 @@
+{
+    "name": "ISSF 50m Rifle",
+    "bullet_diameter_mm": 5.6,
+    "rings": [
+        {
+            "ring": "X",
+            "score": 10.9,
+            "diameter_mm": 5.0
+        },
+        {
+            "ring": "10",
+            "score": 10,
+            "diameter_mm": 10.4
+        },
+        {
+            "ring": "9",
+            "score": 9,
+            "diameter_mm": 26.4
+        },
+        {
+            "ring": "8",
+            "score": 8,
+            "diameter_mm": 42.4
+        },
+        {
+            "ring": "7",
+            "score": 7,
+            "diameter_mm": 58.4
+        },
+        {
+            "ring": "6",
+            "score": 6,
+            "diameter_mm": 74.4
+        },
+        {
+            "ring": "5",
+            "score": 5,
+            "diameter_mm": 90.4
+        },
+        {
+            "ring": "4",
+            "score": 4,
+            "diameter_mm": 106.4
+        },
+        {
+            "ring": "3",
+            "score": 3,
+            "diameter_mm": 122.4
+        },
+        {
+            "ring": "2",
+            "score": 2,
+            "diameter_mm": 138.4
+        },
+        {
+            "ring": "1",
+            "score": 1,
+            "diameter_mm": 154.4
+        }
+    ],
+    "black_area_diameter_mm": 112.4,
+    "total_diameter_mm": 154.4
+}
