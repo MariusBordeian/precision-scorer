@@ -2,6 +2,7 @@
 name = "precision-scorer"
 version = "0.1.0"
 edition = "2021"
+default-run = "precision-scorer"
 
 [dependencies]
 eframe = "0.27.0"
@@ -12,3 +13,7 @@ image = { version = "0.24", features = ["jpeg", "png"] }
 imageproc = "0.23"
 nokhwa = { version = "0.10", features = ["input-native", "output-wgpu"] }
 rfd = "0.14"
+candle-core = "0.8.2"
+ort = "2.0.0-rc.10"
+ndarray = "0.16"
+anyhow = "1.0"

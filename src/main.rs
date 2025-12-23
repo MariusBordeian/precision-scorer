@@ -382,22 +382,20 @@ impl eframe::App for MyApp {
                      // Draw Rings
                      if self.show_rings {
                          let ppm = self.scorer.config.pixels_per_mm;
-                         // 50m Rifle Rings (Diameter -> Radius)
-                         // 10: 10.4mm -> 5.2
-                         // 9: 26.4 -> 13.2
-                         // 8: 42.4 -> 21.2
-                         // ... steps of 16mm diam (8mm radius) usually
+                         let r10 = self.scorer.config.ring_10_diameter_mm / 2.0;
+                         let ring_width = 8.0; // Standard 50m rifle
+
                          let ring_radii_mm = [
-                             5.2,   // 10
-                             13.2,  // 9
-                             21.2,  // 8
-                             29.2,  // 7
-                             37.2,  // 6
-                             45.2,  // 5
-                             53.2,  // 4
+                             r10,                // 10
+                             r10 + ring_width,   // 9
+                             r10 + ring_width*2.0, // 8
+                             r10 + ring_width*3.0, // 7
+                             r10 + ring_width*4.0, // 6
+                             r10 + ring_width*5.0, // 5
+                             r10 + ring_width*6.0, // 4
                          ];
                          
-                         for (i, r_mm) in ring_radii_mm.iter().enumerate() {
+                         for r_mm in ring_radii_mm.iter() {
                              let r_px = r_mm * ppm;
                              painter.circle_stroke(
                                  to_screen(cx, cy),

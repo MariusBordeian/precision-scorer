@@ -180,23 +180,29 @@ impl Scorer {
                 
                 // Effective distance (edge of bullet closest to center)
                 // In ISSF, if the bullet TOUCHES the higher ring, you get the score.
-                // So we subtract the bullet radius to find the inner edge.
                 let bullet_radius_mm = self.config.bullet_diameter_mm / 2.0;
                 let effective_dist_mm = (dist_mm - bullet_radius_mm).max(0.0);
                 
-                // Simplified Decimal Scoring for 50m Rifle
-                // Ring 10 (10.4mm diam) -> Radius 5.2mm
-                // If effective_dist_mm <= 5.2, it's a 10.
-                // But we want 10.0 to 10.9.
-                // Center shot (dist 0) = 10.9
-                // Edge of 10 ring (dist 5.2) = 10.0
-                // Linear drop off?
-                // Ring widths are typically 8mm for 50m rifle (Ring 9 diam 26.4, Ring 8 diam 42.4...)
-                // Let's use a simplified linear model for prototype:
-                // Score = 11.0 - (EffectiveDist / RingWidth)
-                // Assuming ring width approx 8mm.
+                // Ring 10 Radius
+                let r10 = self.config.ring_10_diameter_mm / 2.0;
+                
+                // Simplified Linear Scoring
+                // Score = 10.0 at effective_dist = r10
+                // Score = 10.9 at center (effective_dist = 0)
+                // Score drops by 1.0 for every 'ring_width' (8.0mm) beyond r10
+                
                 let ring_width_mm = 8.0; 
-                let score = 11.0 - (effective_dist_mm / ring_width_mm);
+                
+                let score = if effective_dist_mm < r10 {
+                    // Inside 10 ring: 10.0 to 10.9
+                    // Linear interpolation from 10.9 (at 0) to 10.0 (at r10)
+                    10.9 - (0.9 * (effective_dist_mm / r10))
+                } else {
+                    // Outside 10 ring: < 10.0
+                    // 10.0 - distance beyond 10-ring / width
+                    10.0 - ((effective_dist_mm - r10) / ring_width_mm)
+                };
+
                 let score = score.clamp(0.0, 10.9);
                 // Round to 1 decimal
                 let score = (score * 10.0).round() / 10.0;
