@@ -36,6 +36,16 @@ struct MyApp {
     loaded_image: Option<image::RgbImage>,
     reprocess_requested: bool,
     
+    // ROI State (Margins in pixels)
+    crop_left: u32,
+    crop_right: u32,
+    crop_top: u32,
+    crop_bottom: u32,
+    
+    // Alignment State
+    manual_center: Option<(f32, f32)>, // Relative to cropped image
+    show_rings: bool,
+
     // View Options
     scale_to_fit: bool,
 }
@@ -66,6 +76,12 @@ impl MyApp {
             source_mode: SourceMode::Camera,
             loaded_image: None,
             reprocess_requested: false,
+            crop_left: 0,
+            crop_right: 0,
+            crop_top: 0,
+            crop_bottom: 0,
+            manual_center: None,
+            show_rings: true,
         }
     }
 }
@@ -93,9 +109,43 @@ impl eframe::App for MyApp {
             }
         }
 
-        if let Some(image_buffer) = image_buffer_to_process {
+        if let Some(mut image_buffer) = image_buffer_to_process {
+             // Apply Cropping / ROI
+             // Calculate valid crop region
+             let width = image_buffer.width();
+             let height = image_buffer.height();
+             
+             // Ensure we don't crop everything
+             if self.crop_left + self.crop_right < width && self.crop_top + self.crop_bottom < height {
+                 let new_width = width - self.crop_left - self.crop_right;
+                 let new_height = height - self.crop_top - self.crop_bottom;
+                 
+                 // Perform crop
+                 let cropped = image::imageops::crop(&mut image_buffer, self.crop_left, self.crop_top, new_width, new_height);
+                 image_buffer = cropped.to_image();
+             }
+
              // 1. Process
-             if let Some(detection) = self.processor.process(&image_buffer) {
+             if let Some(mut detection) = self.processor.process(&image_buffer) {
+                 // Override center if manual is set
+                 let (cx, cy) = if let Some((mx, my)) = self.manual_center {
+                     (mx as u32, my as u32)
+                 } else {
+                     detection.target_center
+                 };
+                 detection.target_center = (cx, cy);
+                 
+                 // Filter detections outside the target paper (plus margin)
+                 // Target Diameter 154.4mm. Let's allow 1.5x margin just in case.
+                 let ppm = self.scorer.config.pixels_per_mm;
+                 let max_radius_mm = (self.scorer.config.target_diameter_mm / 2.0) * 1.5;
+                 let max_radius_px = max_radius_mm * ppm;
+                 
+                 detection.holes.retain(|(hx, hy, _)| {
+                     let dist = ((*hx - cx as f32).powi(2) + (*hy - cy as f32).powi(2)).sqrt();
+                     dist <= max_radius_px
+                 });
+                 
                  self.scorer.update(&detection);
                  self.last_detection = Some(detection);
              }
@@ -180,6 +230,13 @@ impl eframe::App for MyApp {
             ui.checkbox(&mut self.scale_to_fit, "Scale to Fit Window");
             
             ui.separator();
+            ui.label("ROI / Cropping (px)");
+            if ui.add(egui::Slider::new(&mut self.crop_left, 0..=300).text("Left")).changed() { self.reprocess_requested = true; }
+            if ui.add(egui::Slider::new(&mut self.crop_right, 0..=300).text("Right")).changed() { self.reprocess_requested = true; }
+            if ui.add(egui::Slider::new(&mut self.crop_top, 0..=300).text("Top")).changed() { self.reprocess_requested = true; }
+            if ui.add(egui::Slider::new(&mut self.crop_bottom, 0..=300).text("Bottom")).changed() { self.reprocess_requested = true; }
+
+            ui.separator();
 
             ui.label("Threshold (0-255)");
             if ui.add(egui::Slider::new(&mut self.processor.threshold_value, 0..=255).text("Darkness")).changed() {
@@ -191,6 +248,34 @@ impl eframe::App for MyApp {
                  self.reprocess_requested = true;
             }
             if ui.add(egui::Slider::new(&mut self.processor.max_hole_radius, 5.0..=50.0).text("Max")).changed() {
+                 self.reprocess_requested = true;
+            }
+            
+            ui.label("Filter Shape");
+            if ui.add(egui::Slider::new(&mut self.processor.min_circularity, 0.0..=1.0).text("Min Circularity")).changed() {
+                 self.reprocess_requested = true;
+            }
+            
+            ui.separator();
+            ui.label("Visual Alignment");
+            ui.checkbox(&mut self.show_rings, "Show Scoring Rings");
+            if ui.button("Reset Target Center").clicked() {
+                self.manual_center = None;
+                if self.source_mode == SourceMode::Image {
+                    self.scorer.reset();
+                    self.reprocess_requested = true;
+                }
+            }
+            ui.label("Right-click image to set center!");
+            
+            ui.separator();
+            ui.label("Calibration");
+            ui.label(format!("Pixels per mm: {:.2}", self.scorer.config.pixels_per_mm));
+            if ui.add(egui::Slider::new(&mut self.scorer.config.pixels_per_mm, 1.0..=50.0).text("Px/mm")).changed() {
+                 // Recalculate all scores? 
+                 // For now, new calibration only affects NEW shots unless we re-score everything.
+                 // Ideally we'd store raw hole positions and re-score on change.
+                 // But for prototype, just allow adjustment.
                  self.reprocess_requested = true;
             }
             
@@ -209,9 +294,9 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Precision Scorer");
             ui.horizontal(|ui| {
-                ui.label(format!("Total Score: {}", self.scorer.total_score));
+                ui.label(format!("Total Score: {:.1}", self.scorer.total_score));
                 if let Some(last) = self.scorer.last_shot_score {
-                    ui.label(format!("  Last Shot: +{}", last));
+                    ui.label(format!("  Last Shot: +{:.1}", last));
                 }
             });
             ui.separator();
@@ -223,12 +308,15 @@ impl eframe::App for MyApp {
                     if self.scale_to_fit {
                          // Shrink to fit available space, maintain aspect ratio
                          ui.add(
-                            egui::Image::new((texture.id(), image_size)).shrink_to_fit()
+                            egui::Image::new((texture.id(), image_size))
+                                .shrink_to_fit()
+                                .sense(egui::Sense::click())
                          )
                     } else {
                         // show actual size
                         ui.add(
                             egui::Image::new((texture.id(), image_size))
+                                .sense(egui::Sense::click())
                         )
                     }
                 };
@@ -253,23 +341,71 @@ impl eframe::App for MyApp {
                      let to_screen = |x: f32, y: f32| -> egui::Pos2 {
                          rect.min + egui::vec2(x * scale_x, y * scale_y)
                      };
+                     
+                     // Determine Center (Manual or Auto)
+                     let (cx, cy) = self.manual_center.unwrap_or((
+                         detection.target_center.0 as f32, 
+                         detection.target_center.1 as f32
+                     ));
+                     
+                     // Handle Clicks to set Center (Right Click)
+                     if response.clicked_by(egui::PointerButton::Secondary) {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            let rel_x = (pos.x - rect.min.x) / scale_x;
+                            let rel_y = (pos.y - rect.min.y) / scale_y;
+                            self.manual_center = Some((rel_x, rel_y));
+                            
+                            // Trigger Re-score if static
+                            if self.source_mode == SourceMode::Image {
+                                self.scorer.reset();
+                                self.reprocess_requested = true;
+                            }
+                        }
+                     }
 
                      // Draw holes
                      for (x, y, r) in &detection.holes {
                          painter.circle_stroke(
                              to_screen(*x, *y), 
-                             *r * scale_x.max(scale_y), // Scale radius too
+                             *r * scale_x.max(scale_y), 
                              egui::Stroke::new(2.0, egui::Color32::RED)
                          );
                      }
                      
-                     // Draw center
-                     let (tx, ty) = detection.target_center;
+                     // Draw Center
                      painter.circle_filled(
-                         to_screen(tx as f32, ty as f32), 
+                         to_screen(cx, cy), 
                          5.0, 
                          egui::Color32::GREEN
                      );
+                     
+                     // Draw Rings
+                     if self.show_rings {
+                         let ppm = self.scorer.config.pixels_per_mm;
+                         // 50m Rifle Rings (Diameter -> Radius)
+                         // 10: 10.4mm -> 5.2
+                         // 9: 26.4 -> 13.2
+                         // 8: 42.4 -> 21.2
+                         // ... steps of 16mm diam (8mm radius) usually
+                         let ring_radii_mm = [
+                             5.2,   // 10
+                             13.2,  // 9
+                             21.2,  // 8
+                             29.2,  // 7
+                             37.2,  // 6
+                             45.2,  // 5
+                             53.2,  // 4
+                         ];
+                         
+                         for (i, r_mm) in ring_radii_mm.iter().enumerate() {
+                             let r_px = r_mm * ppm;
+                             painter.circle_stroke(
+                                 to_screen(cx, cy),
+                                 r_px * scale_x.max(scale_y),
+                                 egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 255, 0, 100))
+                             );
+                         }
+                     }
                 }
             } else {
                 ui.label("Waiting for camera...");
