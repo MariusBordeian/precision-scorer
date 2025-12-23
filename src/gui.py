@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings, QPoint
 from PyQt6.QtGui import QImage, QPixmap, QMouseEvent
 
-from .config import get_default_target, TargetConfig
+from .config import get_default_target, TargetConfig, list_available_targets, load_target
 from .preprocessing import load_image, preprocess_image
 from .detection import detect_all, TargetCalibration, DetectedCircle, find_holes_adaptive
 from .scoring import calculate_all_scores, get_score_summary, ScoredHole
@@ -636,6 +636,7 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        self._available_targets = list_available_targets()
         self.target_config = get_default_target()
         self._last_calibration: Optional[TargetCalibration] = None
         self._last_scored_holes: list[ScoredHole] = []
@@ -647,10 +648,29 @@ class MainWindow(QMainWindow):
         
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QHBoxLayout(central)
+        main_layout = QVBoxLayout(central)
         
+        # Target selector row
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Target:"))
+        self.target_combo = QComboBox()
+        self.target_combo.setMinimumWidth(200)
+        for name, path in self._available_targets:
+            self.target_combo.addItem(name, str(path))
+        # Select current target
+        for i, (name, path) in enumerate(self._available_targets):
+            if name == self.target_config.name:
+                self.target_combo.setCurrentIndex(i)
+                break
+        self.target_combo.currentIndexChanged.connect(self._on_target_changed)
+        target_row.addWidget(self.target_combo)
+        target_row.addStretch()
+        main_layout.addLayout(target_row)
+        
+        # Main content
+        content_layout = QHBoxLayout()
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(splitter)
+        content_layout.addWidget(splitter)
         
         self.tabs = QTabWidget()
         self.file_tab = FileTab(self)
@@ -664,10 +684,18 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.score_panel)
         
         splitter.setSizes([700, 250])
+        main_layout.addLayout(content_layout)
         
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        self.status_bar.showMessage(f"Ready | Target: {self.target_config.name}")
+    
+    def _on_target_changed(self, index: int):
+        """Handle target selection change."""
+        if index >= 0 and index < len(self._available_targets):
+            name, path = self._available_targets[index]
+            self.target_config = load_target(path)
+            self.status_bar.showMessage(f"Target changed to: {self.target_config.name} ({self.target_config.bullet_diameter_mm}mm bullet)")
     
     def closeEvent(self, event):
         self.camera_tab.cleanup()
