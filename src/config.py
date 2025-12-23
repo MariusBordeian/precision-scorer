@@ -52,11 +52,45 @@ class TargetConfig:
             total_diameter_mm=data["total_diameter_mm"]
         )
 
+def get_targets_dir() -> Path:
+    """Get the targets directory path."""
+    return Path(__file__).parent.parent / "targets"
+
+
+def list_available_targets() -> List[tuple[str, Path]]:
+    """
+    List all available target configurations.
+    Returns list of (name, path) tuples.
+    """
+    targets_dir = get_targets_dir()
+    targets = []
+    
+    for json_file in sorted(targets_dir.glob("*.json")):
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            targets.append((data.get("name", json_file.stem), json_file))
+        except:
+            continue
+    
+    return targets
+
+
+def load_target(path: Path) -> TargetConfig:
+    """Load a target configuration from a JSON file."""
+    return TargetConfig.from_json(path)
+
 
 def get_default_target() -> TargetConfig:
-    """Load the default ISSF 50m Rifle target configuration."""
-    targets_dir = Path(__file__).parent.parent / "targets"
-    return TargetConfig.from_json(targets_dir / "issf_50m_rifle.json")
+    """Load the default Brazil RS 50m Air Rifle target configuration."""
+    targets_dir = get_targets_dir()
+    default_path = targets_dir / "brazil_rs_50m_air.json"
+    
+    # Fallback to ISSF 50m if Brazil RS doesn't exist
+    if not default_path.exists():
+        default_path = targets_dir / "issf_50m_rifle.json"
+    
+    return TargetConfig.from_json(default_path)
 
 
 # Application settings
